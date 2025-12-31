@@ -9,11 +9,30 @@ This repository provides ZMK firmware for the Eyelash Peripherals Corne keyboard
 ## Features
 
 ✅ **OLED Displays** - Custom status screens with nice!oled widgets on both halves
-✅ **ZMK Studio** - Real-time keymap editing via USB (left half only)
+✅ **ZMK Studio** - Real-time keymap editing via USB
+✅ **Wireless Dongle** - Optional Arduino Nano 33 BLE dongle for improved battery life
 ✅ **Rotary Encoder** - Volume control and scrolling support
 ✅ **RGB Underglow** - WS2812 LED support
 ✅ **Soft Power-Off** - Q+S+Z combo for deep sleep
 ✅ **Mouse Keys** - Pointing device support
+
+## Configuration Options
+
+This firmware supports **two configurations**:
+
+### Option 1: Dongleless (Direct USB) ⚡ Recommended
+- Connect left half directly via USB
+- Left half acts as central, right half as peripheral
+- ZMK Studio on left half
+- **Battery life**: 2-4 weeks per charge
+- **Best for**: Desk setups with USB nearby
+
+### Option 2: Wireless Dongle 🔋 Maximum Battery
+- Arduino Nano 33 BLE dongle connects to computer via USB
+- **Both halves** are wireless peripherals
+- ZMK Studio on dongle
+- **Battery life**: 5-8 months per charge (both halves)
+- **Best for**: Maximum wireless freedom, portable setups
 
 ## Differences from Upstream
 
@@ -31,11 +50,20 @@ This fork differs from the standard Eyelash Corne configuration:
 - zmk-nice-oled        # Provides OLED widgets (mctechnology17)
 ```
 
-### Build Configuration
-The left half builds with ZMK Studio enabled while maintaining OLED functionality:
+### Build Configurations
+
+**Dongleless mode** (default in main branch):
 ```yaml
 - board: eyelash_nano
   shield: eyelash_corne_left nice_oled
+  snippet: studio-rpc-usb-uart
+  cmake-args: -DCONFIG_ZMK_STUDIO=y -DCONFIG_ZMK_STUDIO_LOCKING=n
+```
+
+**Wireless dongle mode** (Arduino Nano 33 BLE):
+```yaml
+- board: arduino_nano_33_ble
+  shield: eyelash_corne_dongle
   snippet: studio-rpc-usb-uart
   cmake-args: -DCONFIG_ZMK_STUDIO=y -DCONFIG_ZMK_STUDIO_LOCKING=n
 ```
@@ -100,7 +128,97 @@ This is **expected behavior**. ZMK Studio should automatically connect to ttyACM
 ### Studio Limitations
 
 - **Encoders not editable**: Encoder bindings must be set in `config/eyelash_corne.keymap` - they cannot be edited via Studio
-- **USB connection only**: Left half must be connected via USB (Studio over BLE not configured)
+- **USB connection only**: Studio requires USB connection (Studio over BLE not configured)
+
+## Wireless Dongle Setup (Optional)
+
+The wireless dongle configuration uses an **Arduino Nano 33 BLE** or **Arduino Nano 33 BLE Sense** as a central receiver, allowing both keyboard halves to be fully wireless. This dramatically improves battery life from 2-4 weeks to **5-8 months**.
+
+### Hardware Requirements
+
+- **1x Arduino Nano 33 BLE** or **Arduino Nano 33 BLE Sense** board
+- **2x Eyelash Corne keyboard halves** (with eyelash_nano controllers)
+- USB cable for the dongle
+
+### Firmware Files
+
+When you build the dongle configuration, you'll get:
+- `eyelash_corne_dongle_studio.uf2` - Dongle firmware (with Studio)
+- `eyelash_corne_left-nice_oled-zmk.uf2` - Left peripheral firmware
+- `eyelash_corne_right-nice_oled-zmk.uf2` - Right peripheral firmware
+- `settings_reset-arduino_nano_33_ble-zmk.uf2` - Reset for dongle
+- `settings_reset-eyelash_nano-zmk.uf2` - Reset for keyboard halves
+
+### Initial Setup (First Time)
+
+⚠️ **Important**: Flash settings_reset firmware to ALL devices before using dongle firmware!
+
+1. **Reset all devices**:
+   ```
+   Flash settings_reset-arduino_nano_33_ble to dongle
+   Flash settings_reset-eyelash_nano to left half
+   Flash settings_reset-eyelash_nano to right half
+   ```
+
+2. **Flash dongle firmware**:
+   - Put Arduino Nano 33 BLE in bootloader mode (double-tap reset button)
+   - Flash `eyelash_corne_dongle_studio.uf2`
+
+3. **Flash keyboard halves**:
+   - Flash `eyelash_corne_left-nice_oled` to left half
+   - Flash `eyelash_corne_right-nice_oled` to right half
+
+4. **Power everything on**:
+   - Connect dongle to computer via USB
+   - Turn on both keyboard halves
+   - Wait 10-30 seconds for automatic pairing
+
+### Using the Dongle
+
+**Connection**:
+- Dongle connects to computer via USB
+- Both halves connect to dongle wirelessly via BLE
+- All three devices auto-pair on first boot
+
+**ZMK Studio**:
+- Connect dongle to computer via USB
+- Visit [zmk.studio](https://zmk.studio/)
+- Press `&studio_unlock` on the keyboard (Layer 3, F1 position)
+- Edit your keymap through the dongle!
+
+**Battery Life**:
+- Left half: ~5-8 months (no longer central)
+- Right half: ~5-8 months (always peripheral)
+- Dongle: Powered by USB (infinite)
+
+### Switching Between Modes
+
+To switch from **dongleless** to **wireless dongle**:
+1. Flash settings_reset to all devices
+2. Flash dongle firmware to Arduino Nano 33 BLE
+3. Flash peripheral firmware to both keyboard halves
+
+To switch from **wireless dongle** back to **dongleless**:
+1. Flash settings_reset to both keyboard halves
+2. Flash dongleless firmware (with Studio on left half)
+3. Dongle can be disconnected/stored
+
+### Troubleshooting Dongle
+
+**Keyboard not connecting to dongle:**
+- Flash settings_reset to all three devices
+- Re-flash dongle and keyboard firmware
+- Make sure all three devices are powered on
+
+**Only one half working:**
+- Check that both halves have peripheral firmware (not central)
+- Verify OLED displays are showing connection status
+- Try resetting and re-pairing
+
+**Studio not working with dongle:**
+- Verify you flashed `eyelash_corne_dongle_studio.uf2` (with Studio)
+- Check USB connection to dongle (not keyboard)
+- Try the second serial device (ttyACM1) if first doesn't work
 
 ## OLED Widget Customization
 
@@ -172,29 +290,61 @@ Press **Q + S + Z** simultaneously and hold for 2 seconds to enter deep sleep. T
 
 For local builds instead of GitHub Actions:
 
+### Dongleless Configuration
+
 ```bash
 # Initialize west workspace
 west init -l config/
 west update
 
-# Build left half with Studio support
+# Build left half with Studio support (central)
 west build -b eyelash_nano -d build/left -- \
   -DSHIELD="eyelash_corne_left nice_oled" \
   -DSNIPPET=studio-rpc-usb-uart \
   -DCONFIG_ZMK_STUDIO=y \
   -DCONFIG_ZMK_STUDIO_LOCKING=n
 
-# Build right half
+# Build right half (peripheral)
 west build -b eyelash_nano -d build/right -- \
   -DSHIELD="eyelash_corne_right nice_oled"
 ```
 
+### Wireless Dongle Configuration
+
+```bash
+# Build dongle with Studio support (central)
+west build -b arduino_nano_33_ble -d build/dongle -- \
+  -DSHIELD="eyelash_corne_dongle" \
+  -DSNIPPET=studio-rpc-usb-uart \
+  -DCONFIG_ZMK_STUDIO=y \
+  -DCONFIG_ZMK_STUDIO_LOCKING=n
+
+# Build left half (peripheral)
+west build -b eyelash_nano -d build/left -- \
+  -DSHIELD="eyelash_corne_left nice_oled" \
+  -DCONFIG_ZMK_SPLIT=y \
+  -DCONFIG_ZMK_SPLIT_ROLE_CENTRAL=n
+
+# Build right half (peripheral)
+west build -b eyelash_nano -d build/right -- \
+  -DSHIELD="eyelash_corne_right nice_oled" \
+  -DCONFIG_ZMK_SPLIT=y \
+  -DCONFIG_ZMK_SPLIT_ROLE_CENTRAL=n
+```
+
 ## Resources
 
+### ZMK Documentation
 - **ZMK Firmware**: https://zmk.dev/
 - **ZMK Studio**: https://zmk.studio/
+- **Split Keyboards**: https://zmk.dev/docs/features/split-keyboards
+- **Wireless Dongles**: https://zmk.dev/docs/development/hardware-integration/dongle
+
+### Hardware
 - **nice!oled Module**: https://github.com/mctechnology17/zmk-nice-oled
 - **Eyelash Board**: https://github.com/a741725193/zmk-board-eyelash
+- **Arduino Nano 33 BLE**: https://docs.arduino.cc/hardware/nano-33-ble
+- **Arduino Nano 33 BLE (Zephyr)**: https://docs.zephyrproject.org/latest/boards/arduino/nano_33_ble/doc/index.html
 - **Original Corne**: https://github.com/foostan/crkbd
 
 ## Keymap Diagram

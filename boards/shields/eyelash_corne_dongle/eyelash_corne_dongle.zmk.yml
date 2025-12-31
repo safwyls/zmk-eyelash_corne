@@ -1,0 +1,12 @@
+file_format: "1"
+id: eyelash_corne_dongle
+name: Eyelash Corne Dongle
+type: shield
+url: https://github.com/a741725193
+requires: [arduino_nano_33_ble]
+exposes: []
+features:
+  - keys
+siblings:
+  - eyelash_corne_left
+  - eyelash_corne_right
