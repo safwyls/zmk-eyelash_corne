@@ -16,8 +16,8 @@ manifest:
     - name: zmk-nice-oled
       remote: mctechnology17
       revision: main
-    - name: zmk-board-eyelash
-      url: https://github.com/a741725193/zmk-board-eyelash
+    - name: eyelash_corne
+      url: https://github.com/a741725193/zmk-new_corne
       revision: main
   self:
     path: config
