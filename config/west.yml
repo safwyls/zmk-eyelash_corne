@@ -4,6 +4,8 @@ manifest:
       url-base: https://github.com/zmkfirmware
     - name: mctechnology17
       url-base: https://github.com/mctechnology17
+    - name: urob
+      url-base: https://github.com/urob
       # Additional modules containing boards/shields/custom code can be listed here as well.
       # See:
       # - https://zmk.dev/docs/features/modules
@@ -18,6 +20,9 @@ manifest:
       revision: main
     - name: zmk-board-eyelash
       url: https://github.com/a741725193/zmk-board-eyelash
+      revision: main
+    - name: zmk-helpers
+      remote: urob
       revision: main
   self:
     path: config
