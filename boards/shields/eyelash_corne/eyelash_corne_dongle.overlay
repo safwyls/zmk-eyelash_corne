@@ -8,12 +8,7 @@
 #include "eyelash_corne.dtsi"
 
 / {
-    chosen {
-        zmk,kscan = &mock_kscan;
-        zephyr,display = &oled;
-    };
-
-    mock_kscan: kscan {
+    mock_kscan: mock_kscan {
         compatible = "zmk,kscan-mock";
         columns = <0>;
         rows = <0>;
@@ -21,6 +16,12 @@
     };
 };
 
-/ {
-    /delete-node/ kscan;
+&chosen {
+    zmk,kscan = &mock_kscan;
+    zephyr,display = &oled;
+};
+
+&kscan0 {
+    /delete-property/ wakeup-source;
+    /delete-property/ diode-direction;
 };
