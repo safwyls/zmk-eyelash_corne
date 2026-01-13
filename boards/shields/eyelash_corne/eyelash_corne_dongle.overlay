@@ -24,3 +24,12 @@
     /delete-property/ wakeup-source;
     /delete-property/ diode-direction;
 };
+
+&oled {
+    compatible = "sinowealth,sh1106";
+    width = <129>;
+    height = <64>;
+    segment-offset = <1>;
+    multiplex-ratio = <63>;
+    /delete-property/ com-sequential;
+};
