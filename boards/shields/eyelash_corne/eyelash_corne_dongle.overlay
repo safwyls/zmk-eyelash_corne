@@ -5,24 +5,21 @@
 *
 */
 
+#include <dt-bindings/zmk/matrix_transform.h>
+
 / {
     chosen {
-        zmk,kscan = &kscan0;
+        zmk,kscan = &mock_kscan;
         zmk,matrix-transform = &default_transform;
         zmk,physical-layout = &eyeslash_corne_layout;
+        zephyr,display = &oled;
     };
 
-    kscan0: kscan {
-        compatible = "zmk,kscan-gpio-matrix";
-        wakeup-source;
-        diode-direction = "col2row";
-
-        row-gpios
-            = <&gpio0 31 GPIO_ACTIVE_HIGH>
-            ;
-        col-gpios
-            = <&gpio0 29 GPIO_ACTIVE_HIGH>
-            ;
+    mock_kscan: kscan {
+        compatible = "zmk,kscan-mock";
+        columns = <0>;
+        rows = <0>;
+        events = <0>;
     };
 
     default_transform: keymap_transform_0 {
