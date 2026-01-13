@@ -14,11 +14,10 @@
         rows = <0>;
         events = <0>;
     };
-};
 
-&chosen {
-    zmk,kscan = &mock_kscan;
-    zephyr,display = &oled;
+    chosen {
+        zmk,kscan = &mock_kscan;
+    };
 };
 
 &kscan0 {
