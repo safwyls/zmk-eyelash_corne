@@ -6,12 +6,13 @@
 
 This repository provides ZMK firmware for the Eyelash Peripherals Corne keyboard with **both OLED displays and ZMK Studio support** working simultaneously.
 
+
 ## Features
 
 ✅ **OLED Displays** - Custom status screens with nice!oled widgets on both halves
 ✅ **ZMK Studio** - Real-time keymap editing via USB (left half only)
 ✅ **Rotary Encoder** - Volume control and scrolling support
-✅ **RGB Underglow** - WS2812 LED support
+✅ **RGB Underglow** - WS2812 LED support, with a different color per layer
 ✅ **Soft Power-Off** - Q+S+Z combo for deep sleep
 ✅ **Mouse Keys** - Pointing device support
 
@@ -20,11 +21,13 @@ This repository provides ZMK firmware for the Eyelash Peripherals Corne keyboard
 This fork differs from the standard Eyelash Corne configuration:
 
 ### Architecture Changes
+
 - **Modular approach**: Uses `eyelash_nano` board + `eyelash_corne` shield + `nice_oled` shield
 - **Local shield definitions**: Includes `boards/shields/eyelash_corne/` for keyboard matrix and OLED hardware
 - **Studio integration**: Left half configured with `studio-rpc-usb-uart` snippet and Studio flags
 
 ### Module Dependencies
+
 ```yaml
 # config/west.yml
 - zmk-board-eyelash    # Provides eyelash_nano board
@@ -32,7 +35,9 @@ This fork differs from the standard Eyelash Corne configuration:
 ```
 
 ### Build Configuration
+
 The left half builds with ZMK Studio enabled while maintaining OLED functionality:
+
 ```yaml
 - board: eyelash_nano
   shield: eyelash_corne_left nice_oled
@@ -66,7 +71,7 @@ The left half builds with ZMK Studio enabled while maintaining OLED functionalit
 
 1. **Enter bootloader mode**:
    - Double-tap the reset button on each half, OR
-   - Press the `&bootloader` key (Layer 3, right side)
+   - Press the `&bootloader` key (config layer, Layer 4, right side)
 
 2. **Flash the firmware**:
    - Keyboard appears as a USB drive
@@ -92,7 +97,7 @@ This is **expected behavior**. ZMK Studio should automatically connect to ttyACM
 1. **Connect left half via USB**
 2. **Visit [zmk.studio](https://zmk.studio/)** in Chrome/Edge
 3. **Click "Connect"** - it should detect ttyACM1
-4. **Unlock the keymap**: Press `&studio_unlock` key (Layer 3, top-left: F1 position)
+4. **Unlock the keymap**: Press `&studio_unlock` key (config layer, Layer 4, top-left)
 5. **Edit your keymap** in real-time!
 
 **Note**: The right half does NOT have Studio support to save resources.
@@ -124,6 +129,7 @@ CONFIG_NICE_OLED_SLEEP_ART=y       # Show art when display sleeps
 ```
 
 ### WPM Display Modes
+
 - **0** - Numeric WPM counter
 - **1** - Speedometer visualization
 - **2** - Graph visualization
@@ -131,6 +137,7 @@ CONFIG_NICE_OLED_SLEEP_ART=y       # Show art when display sleeps
 - **4** - Bongo Cat (animated cat that plays faster with typing)
 
 ### Art Display Modes
+
 - **0** - Gem animation
 - **1** - Cat animation
 - **2** - Head animation
@@ -142,9 +149,48 @@ For the complete list of customization options, see the [zmk-nice-oled documenta
 ## Special Features
 
 ### Soft Power-Off
+
 Press **Q + S + Z** simultaneously and hold for 2 seconds to enter deep sleep. The keyboard cannot be awakened by key presses - press the reset button once to wake it.
 
+### Per-layer RGB underglow
+
+Stock ZMK (v0.3.0) has a single global underglow color, so this repo adds a
+small module (`src/layer_rgb.c`, wired up by `CMakeLists.txt`, `Kconfig`,
+`dts/bindings/` and `zephyr/module.yml`) that changes the underglow whenever
+the active layer changes. The colors live in
+[`config/layer_rgb.dtsi`](config/layer_rgb.dtsi):
+
+```dts
+main   { layer = <0>; color-hsb = <160 100 60>; effect = <3>; };
+number { layer = <1>; color-hsb = <30 100 60>;  effect = <0>; };
+```
+
+- The **highest active layer that has an entry** sets the color. A layer with
+  no entry falls through to the next lower one.
+- `effect`: 0 solid, 1 breathe, 2 spectrum, 3 swirl (optional). `speed`: 1-5 (optional).
+- The dongle tracks layers and sends each change to both halves through the
+  regular `&rgb_ug` behavior, so **only the dongle needs reflashing** after
+  you change colors. (The module is off on the halves, which are built as
+  peripherals.)
+- `&rgb_ug RGB_ON` / `RGB_OFF` still turn the lights on and off. Hue and
+  brightness keys still work, but the next layer change overrides them.
+- ZMK saves the underglow state to flash about 60 s after the last change, as
+  it does for the `&rgb_ug` keys. A half that wasn't connected when the
+  dongle sent a color shows its saved color until the next layer change.
+
+#### Emulator
+
+Open [`rgb-emulator/index.html`](rgb-emulator/index.html) in a browser (just
+double-click it, no server needed). It draws this keymap's layout and legends
+and simulates the firmware's effects. Hold or toggle layers to preview them
+(holding *number* and *utility* together shows *config*, like the keymap's
+conditional layer), adjust each layer's color, effect and speed, then copy or
+download the generated `layer_rgb.dtsi` into `config/`. The key legends are
+baked into the page, so if you change `eyelash_corne.keymap` they won't
+update. The colors and export still work.
+
 ### Encoder Functions
+
 - **Default layer**: Volume up/down
 - **Lower layer (Layer 1)**: Scroll up/down
 - **Raise layer (Layer 2)**: Scroll up/down
@@ -153,17 +199,20 @@ Press **Q + S + Z** simultaneously and hold for 2 seconds to enter deep sleep. T
 ## Troubleshooting
 
 ### OLEDs not working
+
 - Ensure you flashed firmware built with the `nice_oled` shield
 - Check that `CONFIG_ZMK_DISPLAY=y` is set (it should be by default)
 - Verify the nice_oled module is present in `config/west.yml`
 
 ### Studio not connecting
+
 - Make sure you're connecting the **left half** via USB
 - Try the second serial device (ttyACM1) if the first doesn't work
 - Press the `&studio_unlock` key to enable editing
 - Check that you flashed `eyelash_corne_studio_left.uf2` on the left half
 
 ### Encoder not responding
+
 - Verify encoder is physically installed correctly
 - Check that `CONFIG_EC11=y` is enabled
 - Ensure encoder bindings are set in your keymap's `sensor-bindings`
@@ -191,11 +240,11 @@ west build -b eyelash_nano -d build/right -- \
 
 ## Resources
 
-- **ZMK Firmware**: https://zmk.dev/
-- **ZMK Studio**: https://zmk.studio/
-- **nice!oled Module**: https://github.com/mctechnology17/zmk-nice-oled
-- **Eyelash Board**: https://github.com/a741725193/zmk-board-eyelash
-- **Original Corne**: https://github.com/foostan/crkbd
+- **ZMK Firmware**: <https://zmk.dev/>
+- **ZMK Studio**: <https://zmk.studio/>
+- **nice!oled Module**: <https://github.com/mctechnology17/zmk-nice-oled>
+- **Eyelash Board**: <https://github.com/a741725193/zmk-board-eyelash>
+- **Original Corne**: <https://github.com/foostan/crkbd>
 
 ## Keymap Diagram
 

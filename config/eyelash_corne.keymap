@@ -1,27 +1,54 @@
-#define ZMK_POINTING_DEFAULT_MOVE_VAL 1200  // 600
-#define ZMK_POINTING_DEFAULT_SCRL_VAL 25   // 10
+#define ZMK_POINTING_DEFAULT_MOVE_VAL 600  // default: 600
+#define ZMK_POINTING_DEFAULT_SCRL_VAL 20  // higher = shorter delay before the first scroll tick fires (see &msc below)
 
 #include <input/processors.dtsi>
 #include <zephyr/dt-bindings/input/input-event-codes.h>
 #include <behaviors.dtsi>
 #include <dt-bindings/zmk/bt.h>
+#include <dt-bindings/zmk/ext_power.h>
 #include <dt-bindings/zmk/keys.h>
 #include <dt-bindings/zmk/outputs.h>
 #include <dt-bindings/zmk/pointing.h>
 #include <dt-bindings/zmk/rgb.h>
 
+// Per-layer underglow colors: edit config/layer_rgb.dtsi (or generate it
+// with rgb-emulator/index.html).
+
+#include "layer_rgb.dtsi"
+
+// Layer indices. Keep these in the same order as the layers in the keymap
+// node below (and as the layer numbers in config/layer_rgb.dtsi).
+#define MAIN    0
+#define QWERTY  1
+#define NUM     2
+#define UTIL    3
+#define CONFIG  4
+#define KONBINI 5
+
 &mmv_input_listener { input-processors = <&zip_xy_scaler 2 1>; };
 
-&msc_input_listener { input-processors = <&zip_scroll_scaler 2 1>; };
+// split (not the combined zip_scroll_scaler) so horizontal speed is tunable
+// independent of vertical. This is the speed dial for scroller/scroller_vert:
+// each detent fires ~4 stacked &msc reports (tap-ms=45 vs trigger-period-ms=10,
+// see scroller below), so net distance per tick is roughly
+// (MOVE_X magnitude * reports-that-survived) / div -- tune div here to change
+// feel, not tap-ms/trigger-period-ms/MOVE_X, or dropped ticks come back.
+// Higher div = shorter distance per tick.
+
+&msc_input_listener {
+    input-processors = <&zip_hscroll_scaler 1 4>, <&zip_vscroll_scaler 1 1>;
+};
 
 &msc {
-    acceleration-exponent = <1>;      // 0
-    time-to-max-speed-ms = <100>;       // 300
+    acceleration-exponent = <0>;      // 0 = constant speed, no ramp-up lag
+    time-to-max-speed-ms = <0>;       // unused while acceleration-exponent is 0
     delay-ms = <0>;                   // 0
+    trigger-period-ms = <10>;         // default: 16 -- 4x tick rate to slow scroll reports
+    // first report only fires once SCRL_VAL's per-tick remainder accumulates past 1 (~1000/SCRL_VAL ms)
 };
 
 &mmv {
-    time-to-max-speed-ms = <500>;
+    time-to-max-speed-ms = <700>;
     acceleration-exponent = <1>;
     trigger-period-ms = <16>;
 };
@@ -29,27 +56,84 @@
 &soft_off { hold-time-ms = <2000>; };
 
 / {
+    zip_hscroll_scaler: zip_hscroll_scaler {
+        compatible = "zmk,input-processor-scaler";
+        #input-processor-cells = <2>;
+        type = <INPUT_EV_REL>;
+        codes = <INPUT_REL_HWHEEL>;
+        track-remainders;
+    };
+
+    zip_vscroll_scaler: zip_vscroll_scaler {
+        compatible = "zmk,input-processor-scaler";
+        #input-processor-cells = <2>;
+        type = <INPUT_EV_REL>;
+        codes = <INPUT_REL_WHEEL>;
+        track-remainders;
+    };
+
     behaviors {
-        td0: td0 {
-            compatible = "zmk,behavior-tap-dance";
-            display-name = "Shift/Caps Lock Tap Dance";
-            #binding-cells = <0>;
-            bindings = <&kp LEFT_SHIFT>, <&kp CAPS>;
+        /omit-if-no-ref/
+
+        // generic reusable sensor-rotate behaviors, modeled on inc_dec_kp below:
+        // the underlying behavior + keycode/param are supplied per sensor-bindings
+        // call site instead of being baked into a dedicated node per layer.
+
+        inc_dec_msc: inc_dec_msc {
+            compatible = "zmk,behavior-sensor-rotate-var";
+            #sensor-binding-cells = <2>;
+            bindings = <&msc>, <&msc>;
+
+            // must exceed &msc's trigger-period-ms (10) or the release cancels
+            // the pending scroll tick before it ever fires -- see &msc above
+
+            tap-ms = <150>;
         };
-    };
 
-    rgb_encoder: rgb_encoder {
-        compatible = "zmk,behavior-sensor-rotate";
-        #sensor-binding-cells = <0>;
-        bindings = <&rgb_ug RGB_BRI>, <&rgb_ug RGB_BRD>;
-    };
+        // horizontal scroll for the MAIN layer's encoder: clockwise = right,
+        // counter-clockwise = left. Each detent is a synthetic tap of &msc
+        // (press, wait tap-ms, release); &msc only reports movement on its own
+        // trigger-period-ms timer (10ms), and the release races that timer via
+        // k_work_cancel_delayable on the SAME shared system workqueue that also
+        // runs BLE, the OLED SPI flush, and RGB underglow writes. tap-ms=20 only
+        // fit ~2 ticks in that window -- enough on an idle queue, but any
+        // contention from those other work items could delay the first tick past
+        // the release and silently drop the whole detent (intermittent misses).
+        // tap-ms=45 gives ~4-5 ticks of slack so a single tick surviving jitter
+        // is no longer a coin flip. Magnitude (200) already clears the
+        // 1000/trigger-period-ms=100 threshold needed for a single tick to
+        // register a whole HID unit -- 200 mirrors the value caksoylar/zmk-config
+        // uses for the same reason (SCRL_VAL=200 against an 8ms trigger-period).
 
-    scroll_encoder: scroll_encoder {
-        compatible = "zmk,behavior-sensor-rotate";
-        #sensor-binding-cells = <0>;
-        bindings = <&msc SCRL_DOWN>, <&msc SCRL_UP>;
+        LRscroller: scroll_encoder {
+            compatible = "zmk,behavior-sensor-rotate";
+            #sensor-binding-cells = <0>;
+            bindings = <&msc MOVE_X(100)>, <&msc MOVE_X(-100)>;
 
-        tap-ms = <100>;
+            tap-ms = <45>;
+        };
+
+        // vertical counterpart of scroller above, for the CONFIG layer's encoder:
+        // clockwise = up, counter-clockwise = down (positive Y mirrors SCRL_UP's
+        // sign in dt-bindings/zmk/pointing.h, same as scroller mirrors SCRL_RIGHT)
+
+        scroller_vert: scroll_encoder_vert {
+            compatible = "zmk,behavior-sensor-rotate";
+            #sensor-binding-cells = <0>;
+            bindings = <&msc MOVE_Y(200)>, <&msc MOVE_Y(-200)>;
+
+            tap-ms = <45>;
+        };
+
+        // rgb_ug takes a (command, value) pair per invocation, so unlike &kp/&msc
+        // it can't be driven through the -var pattern above (which only overrides
+        // a single cell per direction) -- hardcode the full 2-cell binding instead.
+
+        rgb_encoder: rgb_encoder {
+            compatible = "zmk,behavior-sensor-rotate";
+            #sensor-binding-cells = <0>;
+            bindings = <&rgb_ug RGB_BRI>, <&rgb_ug RGB_BRD>;
+        };
     };
 
     combos {
@@ -59,57 +143,108 @@
             bindings = <&soft_off>;
             key-positions = <1 15 29>;
         };
+
+        gotolayer4 {
+            bindings = <&tog KONBINI>;
+            key-positions = <42 43>;
+        };
+    };
+
+    macros {
+        lockPC: lockPC {
+            compatible = "zmk,behavior-macro";
+            #binding-cells = <0>;
+            bindings = <&kp LG(L)>;
+            label = "LOCKPC";
+        };
     };
 
     keymap {
         compatible = "zmk,keymap";
 
         default_layer {
-            display-name = "QWERTY";
+            display-name = "main";
             bindings = <
-&kp TAB    &kp Q  &kp W  &kp E     &kp R  &kp T                               &kp UP                &kp Y        &kp U  &kp I      &kp O    &kp P     &kp BSPC
-&td0       &kp A  &kp S  &kp D     &kp F  &kp G                     &kp LEFT  &kp ENTER  &kp RIGHT  &kp H        &kp J  &kp K      &kp L    &kp SEMI  &kp SQT
-&kp LCTRL  &kp Z  &kp X  &kp C     &kp V  &kp B        &kp SPACE              &kp DOWN              &kp N        &kp M  &kp COMMA  &kp DOT  &kp FSLH  &kp ESC
-                         &kp LGUI  &mo 1  &lt 3 SPACE                                               &lt 3 ENTER  &mo 2  &kp RALT
+&kp TAB         &kp Q  &kp W  &kp F            &kp P            &kp B                                &msc SCRL_UP                     &kp J          &kp L           &kp U        &kp Y    &kp SEMI         &kp MINUS
+&kp ESCAPE      &kp A  &kp R  &kp S            &kp T            &kp G                &msc SCRL_LEFT  &kp K_APP       &msc SCRL_RIGHT  &kp M          &kp N           &kp E        &kp I    &kp O            &kp SQT
+&kp LEFT_SHIFT  &kp Z  &kp X  &kp C            &kp D            &kp V      &tog KONBINI                    &msc SCRL_DOWN                   &kp K          &kp H           &kp COMMA    &kp DOT  &lt KONBINI BACKSLASH  &kp FSLH
+                              &lt UTIL BACKSPACE  &mt LCTRL ENTER  &kp SPACE                                                             &kp BACKSPACE  &mt LALT ENTER  &lt NUM SPACE
             >;
 
-             sensor-bindings = <&inc_dec_kp C_VOLUME_UP C_VOLUME_DOWN>;
+            sensor-bindings = <&LRscroller>;
         };
 
-        lower_layer {
-            display-name = "NUMBER";
-            bindings = <
-&trans  &kp N1           &kp N2          &kp N3        &kp N4        &kp N5                                         &mmv MOVE_UP                     &kp N6           &kp N7           &kp N8           &kp N9           &kp N0    &kp BSPC
-&trans  &bt BT_CLR_ALL   &bt BT_SEL 0    &bt BT_SEL 1  &bt BT_SEL 2  &bt BT_SEL 3                   &mmv MOVE_LEFT  &mkp LCLK       &mmv MOVE_RIGHT  &kp LEFT         &kp DOWN         &kp UP           &kp RIGHT        &kp HOME  &kp PG_UP
-&trans  &rgb_ug RGB_OFF  &rgb_ug RGB_ON  &trans        &trans        &rgb_ug RGB_EFF  &kp C_MUTE                    &mmv MOVE_DOWN                   &rgb_ug RGB_EFR  &rgb_ug RGB_SPI  &rgb_ug RGB_BRI  &rgb_ug RGB_BRD  &kp END   &kp PG_DN
-                                         &trans        &trans        &trans                                                                          &kp INS          &kp DEL          &trans
-            >;
+        // Fallback QWERTY, for when the main layer is some other layout.
+        // Toggle it on/off with the 5-way press on the utility layer. It sits
+        // right above main so the number/utility/config layers still win
+        // over it; only the letter and punctuation keys are set, everything
+        // else falls through to main.
 
-            sensor-bindings = <&scroll_encoder>;
+        qwerty {
+            display-name = "qwerty";
+            bindings = <
+&trans  &kp Q  &kp W  &kp E   &kp R   &kp T                    &trans          &kp Y   &kp U   &kp I      &kp O    &kp P     &trans
+&trans  &kp A  &kp S  &kp D   &kp F   &kp G            &trans  &trans  &trans  &kp H   &kp J   &kp K      &kp L    &kp SEMI  &kp SQT
+&trans  &kp Z  &kp X  &kp C   &kp V   &kp B   &trans           &trans          &kp N   &kp M   &kp COMMA  &kp DOT  &trans    &trans
+                      &trans  &trans  &trans                                   &trans  &trans  &trans
+            >;
         };
 
-        raise_layer {
-            display-name = "SYMBOL";
+        Rhold {
+            display-name = "number";
             bindings = <
-&trans  &kp EXCL      &kp AT        &kp HASH   &kp DLLR   &kp PRCNT                            &mmv MOVE_UP                     &kp CARET  &kp AMPS   &kp ASTRK  &kp LPAR  &kp RPAR  &kp BSPC
-&trans  &bt BT_CLR    &mkp LCLK     &mkp MCLK  &mkp RCLK  &mkp MB4             &mmv MOVE_LEFT  &mkp LCLK       &mmv MOVE_RIGHT  &kp MINUS  &kp EQUAL  &kp LBKT   &kp RBKT  &kp BSLH  &kp GRAVE
-&trans  &out OUT_USB  &out OUT_BLE  &none      &none      &mkp MB5   &trans                    &mmv MOVE_DOWN                   &kp UNDER  &kp PLUS   &kp LBRC   &kp RBRC  &kp PIPE  &kp TILDE
-                                    &trans     &trans     &kp SPACE                                                             &kp RET    &trans     &trans
+&kp F1          &kp F2     &kp F3     &kp F4            &kp F5             &kp F6                                  &kp UP                  &kp F7         &kp F8              &kp F9           &kp F10         &kp F11    &kp F12
+&gresc          &kp N1     &kp N2     &kp N3            &kp N4             &kp N5                        &kp LEFT  &kp K_CMENU  &kp RIGHT  &kp N6         &kp N7              &kp N8           &kp N9          &kp N0     &kp SINGLE_QUOTE
+&kp LEFT_SHIFT  &kp GRAVE  &kp PG_DN  &kp LEFT_BRACKET  &kp RIGHT_BRACKET  &kp PG_UP       &kp C_MUTE              &kp DOWN                &kp EQUAL      &kp MINUS           &mt POUND COMMA  &mt DOLLAR DOT  &kp SLASH  &caps_word
+                                      &trans            &mt LCTRL ENTER    &mt LGUI SPACE                                                  &kp BACKSPACE  &mt LEFT_ALT ENTER  &trans
             >;
 
-            sensor-bindings = <&scroll_encoder>;
+            sensor-bindings = <&inc_dec_kp C_VOL_UP C_VOL_DN>;
         };
 
-        layer_3 {
-            display-name = "Fn";
+        Lhold {
+            display-name = "utility";
             bindings = <
-&studio_unlock  &kp F1      &kp F2     &kp F3       &kp F4     &kp F5                                  &mmv MOVE_UP                     &kp F6       &kp F7     &kp F8       &kp F9      &kp F10          &kp F11
-&trans          &trans      &mkp LCLK  &mkp MCLK    &mkp RCLK  &mkp MB4                &mmv MOVE_LEFT  &mkp LCLK       &mmv MOVE_RIGHT  &bootloader  &mkp LCLK  &mkp MCLK    &mkp RCLK   &kp PRINTSCREEN  &kp F12
-&trans          &sys_reset  &trans     &bootloader  &trans     &mkp MB5  &kp C_MUTE                    &mmv MOVE_DOWN                   &trans       &trans     &bootloader  &sys_reset  &kp SCROLLLOCK   &kp PAUSE_BREAK
-                                       &trans       &trans     &trans                                                                   &trans       &trans     &trans
+&kp TAB     &sk LALT        &sk LGUI        &sk HOME         &kp END   &kp PG_UP                             &mmv MOVE_UP                     &mkp MB4   &mkp MB5               &kp KP_NUMBER_7  &kp KP_N8             &kp KP_N9  &mt KP_ASTERISK KP_PLUS
+&sk LCTRL   &msc SCRL_LEFT  &kp DEL         &msc SCRL_RIGHT  &kp UP    &kp PG_DN             &mmv MOVE_LEFT  &tog QWERTY     &mmv MOVE_RIGHT  &mkp MB1   &mkp MB2               &kp KP_N4        &mt KP_NUMLOCK KP_N5  &kp KP_N6  &mt KP_DIVIDE KP_MINUS
+&kp LSHIFT  &msc SCRL_UP    &msc SCRL_DOWN  &kp LEFT         &kp DOWN  &kp RIGHT  &lockPC                    &mmv MOVE_DOWN                   &mkp MB3   &mt LSHIFT KP_NUMLOCK  &mt KP_N0 KP_N1  &mt KP_DOT KP_N2      &kp KP_N3  &mt KP_ENTER KP_EQUAL
+                                            &trans           &trans    &trans                                                                 &kp LCTRL  &mt LEFT_ALT ENTER     &trans
             >;
 
-            sensor-bindings = <&scroll_encoder>;
+            sensor-bindings = <&rgb_encoder>;
+        };
+
+        LRhold {
+            display-name = "config";
+            bindings = <
+&studio_unlock  &rgb_ug RGB_OFF  &rgb_ug RGB_ON     &rgb_ug RGB_HUI  &rgb_ug RGB_SAI  &rgb_ug RGB_BRI                           &sk LSHIFT                &kp C_PREV     &kp C_NEXT      &kp PG_UP      &kp C_VOL_UP  &kp C_BRI_UP    &kp C_MUTE
+&bootloader     &bt BT_CLR_ALL   &out OUT_TOG       &rgb_ug RGB_HUD  &rgb_ug RGB_SAD  &rgb_ug RGB_BRD                &sk LCTRL  &kp ENTER   &sk LEFT_ALT  &kp C_STOP     &mkp LCLK       &kp PG_DN      &kp C_VOL_DN  &kp C_BRI_DN    &kp CLCK
+&kp LSHFT       &sys_reset       &ext_power EP_TOG  &key_repeat      &rgb_ug RGB_EFF  &rgb_ug RGB_EFR  &kp C_MUTE               &sk LCMD                  &kp C_RW       &kp C_FF        &kp C_SHUFFLE  &kp C_PP      &kp SCROLLLOCK  &kp PAUSE_BREAK
+                                                    &none            &kp LCTRL        &kp SPACE                                                           &kp BACKSPACE  &mt LALT ENTER  &none
+            >;
+
+            sensor-bindings = <&scroller_vert>;
+        };
+
+        weird_stuff {
+            display-name = "konbini";
+            bindings = <
+&trans  &kp SLASH  &kp MINUS  &kp PLUS      &kp ASTERISK  &kp EQUAL                    &trans          &trans     &trans    &trans    &trans     &trans  &trans
+&trans  &kp N1     &kp N2     &kp N3        &kp N4        &kp N5               &trans  &trans  &trans  &kp PG_UP  &kp HOME  &kp UP    &kp END    &trans  &trans
+&trans  &kp N6     &kp N7     &mt COMMA N8  &mt DOT N9    &kp N0     &tog KONBINI            &trans          &kp PG_DN  &kp LEFT  &kp DOWN  &kp RIGHT  &trans  &trans
+                              &trans        &trans        &trans                                       &trans     &trans    &trans
+            >;
+
+            sensor-bindings = <&scroller_vert>;
+        };
+    };
+
+    conditional_layers {
+        compatible = "zmk,conditional-layers";
+
+        config {
+            if-layers = <NUM UTIL>;
+            then-layer = <CONFIG>;
         };
     };
 };

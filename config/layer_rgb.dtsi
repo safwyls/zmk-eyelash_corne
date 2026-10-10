@@ -1,0 +1,28 @@
+/*
+ * Per-layer RGB underglow (handled by src/layer_rgb.c).
+ *
+ * Generate this file with the emulator in rgb-emulator/index.html, or edit
+ * it by hand. The color shown is the one for the highest active layer that
+ * has an entry; layers without one fall through to the next lower layer.
+ *
+ *   layer      layer number, same as in eyelash_corne.keymap (0 = main)
+ *   color-hsb  <hue 0-359  saturation 0-100  brightness 0-100>
+ *   effect     0 solid, 1 breathe, 2 spectrum, 3 swirl  (optional)
+ *   speed      1-5, for the animated effects             (optional)
+ *
+ * RGB on/off (&rgb_ug RGB_ON/RGB_OFF) still works and is left alone. Changing
+ * a layer overrides any hue/brightness you set with the &rgb_ug keys.
+ */
+
+/ {
+    layer_rgb {
+        compatible = "zmk,layer-rgb";
+
+        main    { layer = <0>; color-hsb = <190 100 40>; effect = <0>; };
+        qwerty  { layer = <1>; color-hsb = <55 100 40>; effect = <0>; };
+        number  { layer = <2>; color-hsb = <30 100 40>; effect = <0>; };
+        utility { layer = <3>; color-hsb = <120 100 40>; effect = <0>; };
+        config  { layer = <4>; color-hsb = <0 100 40>; effect = <0>; };
+        konbini { layer = <5>; color-hsb = <280 100 40>; effect = <0>; };
+    };
+};
